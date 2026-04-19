@@ -1,0 +1,41 @@
+name: SET100 Daily Price Update
+
+on:
+  schedule:
+    # 10:00 UTC = 17:00 ICT (30 min after Bangkok market close, Mon–Fri)
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit the DB back
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch today's SET100 price
+        run: python main.py update
+
+      - name: Export latest prices to CSV
+        run: python main.py export-csv
+
+      - name: Commit updated data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add set100_daily.db data/set100_prices.csv
+          # Only commit if there are changes (no-op on holidays/weekends)
+          git diff --cached --quiet || git commit -m "data: SET100 $(date -u +'%Y-%m-%d')"
+          git push

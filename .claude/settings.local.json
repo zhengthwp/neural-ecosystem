@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 main.py update)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 main.py show)",
+      "Bash(python3 main.py today)",
+      "Bash(python3 main.py show --days 10)",
+      "Bash(python3 main.py show --date 2026-04-20)",
+      "Bash(python3 main.py --help)",
+      "Bash(python3 main.py status)",
+      "Bash(crontab -l)",
+      "Bash(python3 -c \"import time; print\\('UTC offset hours:', -time.timezone/3600\\)\")",
+      "Bash(python3 main.py export-csv)",
+      "Bash(gh auth *)"
+    ]
+  }
+}
