@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3D Rotating Sphere</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: #0a0a1a;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = 600;
+    canvas.height = 600;
+
+    const cx = canvas.width / 2;
+    const cy = canvas.height / 2;
+    const radius = 200;
+    const dotCount = 800;
+    let angleY = 0;
+    let angleX = 0.3;
+
+    // Generate points on sphere surface using golden ratio
+    const points = [];
+    const golden = Math.PI * (3 - Math.sqrt(5));
+
+    for (let i = 0; i < dotCount; i++) {
+      const y = 1 - (i / (dotCount - 1)) * 2;
+      const r = Math.sqrt(1 - y * y);
+      const theta = golden * i;
+      points.push({
+        x: Math.cos(theta) * r,
+        y: y,
+        z: Math.sin(theta) * r,
+      });
+    }
+
+    function rotateY(p, a) {
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      return {
+        x: p.x * cos - p.z * sin,
+        y: p.y,
+        z: p.x * sin + p.z * cos,
+      };
+    }
+
+    function rotateX(p, a) {
+      const cos = Math.cos(a);
+      const sin = Math.sin(a);
+      return {
+        x: p.x,
+        y: p.y * cos - p.z * sin,
+        z: p.y * sin + p.z * cos,
+      };
+    }
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const projected = points.map((p) => {
+        let rp = rotateX(p, angleX);
+        rp = rotateY(rp, angleY);
+
+        const perspective = 600 / (600 + rp.z * radius);
+        const sx = cx + rp.x * radius * perspective;
+        const sy = cy + rp.y * radius * perspective;
+        const brightness = (rp.z + 1) / 2;
+
+        return { sx, sy, brightness, z: rp.z };
+      });
+
+      // Sort by z depth so front dots draw last
+      projected.sort((a, b) => a.z - b.z);
+
+      for (const p of projected) {
+        const size = 1.5 + p.brightness * 2;
+        const alpha = 0.2 + p.brightness * 0.8;
+        const r = Math.floor(100 + p.brightness * 155);
+        const g = Math.floor(150 + p.brightness * 80);
+        const b = 255;
+
+        ctx.beginPath();
+        ctx.arc(p.sx, p.sy, size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        ctx.fill();
+      }
+
+      angleY += 0.005;
+
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>

@@ -14,7 +14,19 @@
       "Bash(crontab -l)",
       "Bash(python3 -c \"import time; print\\('UTC offset hours:', -time.timezone/3600\\)\")",
       "Bash(python3 main.py export-csv)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(npm install *)",
+      "Bash(timeout 5 node server.js)",
+      "Bash(node -e \"const sim = require\\('./sim'\\); sim.loadState\\(\\); sim.tick\\(\\); const s = sim.getFullState\\(\\); console.log\\('creatures:', s.creatures.length, 'plants:', s.plants.length, 'era:', s.era.era\\);\")",
+      "Bash(node server.js)",
+      "Bash(curl -s http://localhost:3000/client.html)",
+      "Bash(kill %1)",
+      "Bash(git remote *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(ssh-keygen -F github.com)",
+      "Bash(git commit *)"
     ]
   }
 }
