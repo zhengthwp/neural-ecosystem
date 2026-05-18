@@ -255,34 +255,37 @@ function frame(){
     ctx.strokeStyle=`rgba(100,180,255,${alpha})`;ctx.lineWidth=0.6;ctx.stroke();
   }
 
-  // ── Foreground: plants + creatures (depth sorted) ─────────────
-  const elements=[];
+  // ── Plants: sort by root z (one key per plant, not per segment) ─
+  const visPlants = [];
   for(const pl of localPlants){
     if(!pl||!pl.alive||!pl.segs) continue;
+    const rz = rotate(pl.root.x,pl.root.y,pl.root.z,ax,ay).z;
+    visPlants.push({pl,rz});
+  }
+  visPlants.sort((a,b)=>a.rz-b.rz);
+  for(const {pl} of visPlants){
     for(const s of pl.segs){
       const r1=rotate(s.x1,s.y1,s.z1,ax,ay),r2=rotate(s.x2,s.y2,s.z2,ax,ay);
       const {sx:sx1,sy:sy1}=project(r1.x,r1.y,r1.z),{sx:sx2,sy:sy2}=project(r2.x,r2.y,r2.z);
-      elements.push({kind:1,z:(r1.z+r2.z)*0.5,sx1,sy1,sx2,sy2,color:s.color,lw:s.lw});
+      ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);
+      ctx.strokeStyle=s.color;ctx.lineWidth=s.lw;ctx.lineCap='round';ctx.stroke();
     }
     if(pl.flowers) for(const d of pl.flowers){
       const r=rotate(d.x,d.y,d.z,ax,ay),{sx,sy,s}=project(r.x,r.y,r.z);
-      elements.push({kind:2,z:r.z,sx,sy,size:d.size*s,color:d.color});
+      const sz=d.size*s;
+      ctx.beginPath();ctx.arc(sx,sy,sz,0,Math.PI*2);ctx.fillStyle=d.color;ctx.fill();
+      ctx.beginPath();ctx.arc(sx,sy,sz*2,0,Math.PI*2);
+      ctx.fillStyle=d.color.replace('hsl','hsla').replace(')',',0.18)');ctx.fill();
     }
   }
+
+  // ── Creatures: sort ~20-40 elements (small, stays fast) ───────
+  const creatureEls=[];
   for(const c of localCreatures)
-    for(const el of getCreatureElements(c,ax,ay)) elements.push(el);
-
-  elements.sort((a,b)=>a.z-b.z);
-
-  for(const el of elements){
-    if(el.kind===1){
-      ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
-      ctx.strokeStyle=el.color;ctx.lineWidth=el.lw;ctx.lineCap='round';ctx.stroke();
-    } else if(el.kind===2){
-      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size,0,Math.PI*2);ctx.fillStyle=el.color;ctx.fill();
-      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size*2,0,Math.PI*2);
-      ctx.fillStyle=el.color.replace('hsl','hsla').replace(')',',0.18)');ctx.fill();
-    } else if(el.kind===4){
+    for(const el of getCreatureElements(c,ax,ay)) creatureEls.push(el);
+  creatureEls.sort((a,b)=>a.z-b.z);
+  for(const el of creatureEls){
+    if(el.kind===4){
       ctx.beginPath();ctx.ellipse(el.sx,el.sy,el.rx,el.ry,el.angle,0,Math.PI*2);
       ctx.fillStyle=el.color;ctx.fill();ctx.strokeStyle=el.color;ctx.lineWidth=0.5;ctx.stroke();
     } else if(el.kind===5){
