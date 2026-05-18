@@ -42,33 +42,20 @@ function randomInsideSphere(r){
 const dist3 = (a,b) => Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2);
 
 // ── PLANT SYSTEM ─────────────────────────────────────────────────
-function buildPlantGeometry(root){
-  const layers=pickI(CFG.plant.layers),baseLen=pick(CFG.plant.baseLen),
-        ratio=pick(CFG.plant.ratio),spread=pick(CFG.plant.spread),
-        gh=pick(CFG.green.hue),gs=pick(CFG.green.sat),gl=pick(CFG.green.light),
-        fh=pick(CFG.flower.hue),fs=pick(CFG.flower.sat),fl=pick(CFG.flower.light),
-        fc=pickI(CFG.flower.count),fsz=pick(CFG.flower.size);
-  const segs=[],flowers=[],tips=[];
-  const rec=(px,py,pz,dir,len,depth)=>{
-    const ex=px+dir.x*len,ey=py+dir.y*len,ez=pz+dir.z*len,t=depth/layers;
-    segs.push({x1:px,y1:py,z1:pz,x2:ex,y2:ey,z2:ez,color:`hsl(${gh},${gs}%,${gl+(1-t)*18}%)`,lw:0.2+depth*0.2});
-    if(depth===1){tips.push({x:ex,y:ey,z:ez});return;}
-    const h=spread*0.5;
-    rec(ex,ey,ez,deviate(dir,h+rand(-0.06,0.06)),len*ratio,depth-1);
-    rec(ex,ey,ez,deviate(dir,h+rand(-0.06,0.06)),len*ratio,depth-1);
+function makePlantDot(){
+  return {
+    size: rand(2, 7),
+    hue:  rand(60, 160),   // yellow-green to teal
+    sat:  rand(60, 100),
+    lit:  rand(40, 75),
   };
-  rec(root.x,root.y,root.z,randomDir(),baseLen,layers);
-  tips.sort(()=>Math.random()-0.5).slice(0,Math.min(fc,tips.length))
-      .forEach(t=>flowers.push({x:t.x,y:t.y,z:t.z,color:`hsl(${fh+rand(-22,22)},${fs}%,${fl}%)`,size:fsz}));
-  return {segs,flowers};
 }
 function createPlantAt(root){
-  const {segs,flowers}=buildPlantGeometry(root);
-  return {segs,flowers,root,alive:true,regrowTimer:0,energyValue:rand(25,40),idx:0};
+  return { root, ...makePlantDot(), alive:true, regrowTimer:0, energyValue:rand(25,40), idx:0 };
 }
 function regeneratePlant(pl){
-  const {segs,flowers}=buildPlantGeometry(pl.root);
-  pl.segs=segs; pl.flowers=flowers; pl.alive=true; pl.regrowTimer=0;
+  Object.assign(pl, makePlantDot());
+  pl.alive=true; pl.regrowTimer=0;
   plantDirty.add(pl.idx);
 }
 
@@ -300,10 +287,14 @@ function _eraData(){
   };
 }
 
+function _plantData(pl){
+  return {index:pl.idx,root:pl.root,alive:pl.alive,size:pl.size,hue:pl.hue,sat:pl.sat,lit:pl.lit};
+}
+
 function getFullState(){
   return {
     creatures:creatures.map(_creatureData),
-    plants:plantObjects.map(pl=>({index:pl.idx,root:pl.root,alive:pl.alive,segs:pl.segs,flowers:pl.flowers})),
+    plants:plantObjects.map(_plantData),
     ..._eraData(),
   };
 }
@@ -312,7 +303,7 @@ function getFrameState(){
   const updates=[];
   for(const idx of plantDirty){
     const pl=plantObjects[idx];
-    if(pl) updates.push({index:pl.idx,root:pl.root,alive:pl.alive,segs:pl.segs,flowers:pl.flowers});
+    if(pl) updates.push(_plantData(pl));
   }
   plantDirty.clear();
   return {
@@ -334,7 +325,7 @@ function saveState(){
         fitness:e.fitness,era:e.era
       })),
       eraHistory,currentEraStats,eraFrame,
-      plants:plantObjects.map(p=>({root:p.root,alive:p.alive,regrowTimer:p.regrowTimer,energyValue:p.energyValue})),
+      plants:plantObjects.map(p=>({root:p.root,alive:p.alive,regrowTimer:p.regrowTimer,energyValue:p.energyValue,size:p.size,hue:p.hue,sat:p.sat,lit:p.lit})),
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(data));
   } catch(e){ console.error('Save failed:',e.message); }
@@ -353,7 +344,9 @@ function loadState(){
     if(data.plants&&data.plants.length){
       data.plants.forEach((p,i)=>{
         const pl=createPlantAt(p.root);
-        pl.alive=p.alive; pl.regrowTimer=p.regrowTimer||0; pl.energyValue=p.energyValue||rand(25,40); pl.idx=i;
+        pl.alive=p.alive; pl.regrowTimer=p.regrowTimer||0; pl.energyValue=p.energyValue||rand(25,40);
+        if(p.size) { pl.size=p.size; pl.hue=p.hue; pl.sat=p.sat; pl.lit=p.lit; }
+        pl.idx=i;
         plantObjects.push(pl);
       });
     } else { _initFresh(); }
