@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Neural Ecosystem</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { background:#06080f; display:flex; justify-content:center; align-items:center; height:100vh; overflow:hidden; flex-direction:column; }
+    canvas { display:block; }
+    #status { position:fixed; bottom:12px; left:50%; transform:translateX(-50%); font:10px monospace; color:rgba(100,200,255,0.6); pointer-events:none; }
+  </style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div id="status">connecting...</div>
+<script>
+// ── CANVAS SETUP ─────────────────────────────────────────────────
+const W = 900, H = 700;
+const canvas = document.getElementById('canvas');
+canvas.width = W; canvas.height = H;
+const ctx = canvas.getContext('2d');
+const CX = 380, CY = H/2;
+const SPHERE_R = 200, PERSP = 700;
+const statusEl = document.getElementById('status');
+
+// ── UTILS ────────────────────────────────────────────────────────
+const rand  = (a,b) => Math.random()*(b-a)+a;
+const clamp = (v,lo,hi) => Math.max(lo,Math.min(hi,v));
+const pad   = (v,n) => String(v).padStart(n);
+
+// ── 3D MATH (needed for fin rendering) ──────────────────────────
+const vNorm  = v => { const l=Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z); return l<1e-9?{x:0,y:0,z:1}:{x:v.x/l,y:v.y/l,z:v.z/l}; };
+const vCross = (a,b) => ({x:a.y*b.z-a.z*b.y, y:a.z*b.x-a.x*b.z, z:a.x*b.y-a.y*b.x});
+function rodrigues(v,k,angle){
+  const cos=Math.cos(angle),sin=Math.sin(angle),dot=v.x*k.x+v.y*k.y+v.z*k.z,cr=vCross(k,v);
+  return {x:v.x*cos+cr.x*sin+k.x*dot*(1-cos), y:v.y*cos+cr.y*sin+k.y*dot*(1-cos), z:v.z*cos+cr.z*sin+k.z*dot*(1-cos)};
+}
+
+// ── SPHERE WIREFRAME + DOTS (static, computed locally) ───────────
+const geoSphere=[], geoWireframe=[];
+{
+  const SEG=72;
+  const addRing=pts=>{for(let i=0;i<pts.length;i++){const a=pts[i],b=pts[(i+1)%pts.length];geoWireframe.push({x1:a.x,y1:a.y,z1:a.z,x2:b.x,y2:b.y,z2:b.z});}};
+  for(const lat of[-60,-30,0,30,60]){
+    const rad=lat*Math.PI/180,ry=SPHERE_R*Math.sin(rad),rr=SPHERE_R*Math.cos(rad),pts=[];
+    for(let i=0;i<SEG;i++){const phi=(i/SEG)*Math.PI*2;pts.push({x:rr*Math.cos(phi),y:ry,z:rr*Math.sin(phi)});}
+    addRing(pts);
+  }
+  for(let m=0;m<6;m++){
+    const phi=(m/6)*Math.PI,pts=[];
+    for(let i=0;i<SEG;i++){const t=(i/SEG)*Math.PI*2;pts.push({x:SPHERE_R*Math.sin(t)*Math.cos(phi),y:SPHERE_R*Math.cos(t),z:SPHERE_R*Math.sin(t)*Math.sin(phi)});}
+    addRing(pts);
+  }
+  const golden=Math.PI*(3-Math.sqrt(5));
+  for(let i=0;i<650;i++){const y=1-(i/649)*2,r=Math.sqrt(1-y*y),t=golden*i;geoSphere.push({x:Math.cos(t)*r*SPHERE_R,y:y*SPHERE_R,z:Math.sin(t)*r*SPHERE_R});}
+}
+
+// ── LOCAL SIMULATION STATE (received from server) ────────────────
+let localCreatures = [];
+let localPlants    = [];     // [{index, root, segs, flowers, alive}]
+let localEra       = { era:1, peakPop:0, maxGen:0, eraFrame:0 };
+let localEraHistory= [];
+let localGenePool  = [];
+let connected      = false;
+
+// ── WEBSOCKET ────────────────────────────────────────────────────
+let ws;
+function connect(){
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${protocol}//${location.host}`);
+  statusEl.textContent = 'connecting...';
+
+  ws.onopen = () => {
+    connected = true;
+    statusEl.textContent = 'live';
+  };
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+
+    if(msg.type === 'init'){
+      // Full state on connect
+      localCreatures  = msg.creatures || [];
+      localPlants     = (msg.plants || []).map(p => ({...p}));
+      localEra        = msg.era || localEra;
+      localEraHistory = msg.eraHistory || [];
+      localGenePool   = msg.genePool || [];
+    } else if(msg.type === 'frame'){
+      // Lightweight per-tick update
+      localCreatures = msg.creatures || [];
+      // Update alive flags
+      if(msg.plantAlive){
+        for(let i=0;i<msg.plantAlive.length;i++){
+          if(localPlants[i]) localPlants[i].alive = msg.plantAlive[i];
+        }
+      }
+      // Apply geometry updates (regrowth or new plants)
+      if(msg.plantUpdates){
+        for(const u of msg.plantUpdates){
+          if(localPlants[u.index]){
+            Object.assign(localPlants[u.index], u);
+          } else {
+            // New plant beyond current array length
+            while(localPlants.length <= u.index) localPlants.push(null);
+            localPlants[u.index] = {...u};
+          }
+        }
+      }
+      localEra        = msg.era || localEra;
+      localEraHistory = msg.eraHistory || localEraHistory;
+      localGenePool   = msg.genePool || localGenePool;
+    }
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    statusEl.textContent = 'disconnected — reconnecting in 3s...';
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+}
+connect();
+
+// ── ROTATION & PROJECTION ────────────────────────────────────────
+function rotate(x,y,z,ax,ay){
+  const cx=Math.cos(ax),sx=Math.sin(ax);const y2=y*cx-z*sx,z2=y*sx+z*cx;
+  const cy=Math.cos(ay),sy=Math.sin(ay);return{x:x*cy+z2*sy,y:y2,z:-x*sy+z2*cy};
+}
+function project(rx,ry,rz){
+  const s=PERSP/(PERSP+rz)*zoom;return{sx:CX+rx*s,sy:CY+ry*s,s};
+}
+
+// ── MOUSE & ZOOM ──────────────────────────────────────────────────
+let angleY=0,angleX=0.22,velY=0.004,velX=0;
+let dragging=false,lastMX=0,lastMY=0;
+canvas.addEventListener('mousedown',e=>{dragging=true;lastMX=e.clientX;lastMY=e.clientY;velX=0;velY=0;canvas.style.cursor='grabbing';});
+window.addEventListener('mousemove',e=>{if(!dragging)return;velY=(e.clientX-lastMX)*0.005;velX=(e.clientY-lastMY)*0.005;angleY+=velY;angleX+=velX;lastMX=e.clientX;lastMY=e.clientY;});
+window.addEventListener('mouseup',()=>{dragging=false;canvas.style.cursor='grab';});
+canvas.style.cursor='grab';
+let zoom=1.0;
+canvas.addEventListener('wheel',e=>{e.preventDefault();zoom=clamp(zoom*(1-e.deltaY*0.001),0.2,5);},{passive:false});
+
+// ── CREATURE ELEMENT BUILDER ─────────────────────────────────────
+function getCreatureElements(c,ax,ay){
+  const sc=c.state==='juvenile'?c.scale:1;
+  const br=c.bodyRadius*sc, ll=c.legLength*sc;
+  const rp=rotate(c.x,c.y,c.z,ax,ay);
+  const {sx,sy,s}=project(rp.x,rp.y,rp.z);
+  const er=c.energy/100,sat=Math.round(10+er*70),light=Math.round(20+er*50);
+  const bc=`hsla(${c.hue},${sat}%,${light}%,${c.alpha})`;
+  const fc=`hsla(${c.hue},${sat}%,${Math.min(light+14,85)}%,${c.alpha*0.72})`;
+  const els=[];
+  const ah=rotate(c.x+c.dx,c.y+c.dy,c.z+c.dz,ax,ay);
+  els.push({kind:4,z:rp.z,sx,sy,rx:br*s*1.25,ry:br*s*0.78,angle:Math.atan2(ah.y-rp.y,ah.x-rp.x),color:bc});
+  if(c.state==='adult'){
+    const dir={x:c.dx,y:c.dy,z:c.dz};
+    const refUp=Math.abs(dir.y)<0.9?{x:0,y:1,z:0}:{x:1,y:0,z:0};
+    const right=vNorm(vCross(dir,refUp));
+    const flap=Math.sin(c.legAngle)*0.55;
+    for(const [side,fp] of [[{x:-right.x,y:-right.y,z:-right.z},flap],[right,-flap]]){
+      const fd=rodrigues(side,dir,fp);
+      const bx=c.x+side.x*br*0.85,by=c.y+side.y*br*0.85,bz=c.z+side.z*br*0.85;
+      const tx=bx+fd.x*ll,ty=by+fd.y*ll,tz=bz+fd.z*ll;
+      const rb=rotate(bx,by,bz,ax,ay),rt=rotate(tx,ty,tz,ax,ay);
+      const pb=project(rb.x,rb.y,rb.z),pt=project(rt.x,rt.y,rt.z);
+      els.push({kind:5,z:(rb.z+rt.z)*0.5,sx1:pb.sx,sy1:pb.sy,sx2:pt.sx,sy2:pt.sy,color:fc,lw:Math.max(0.6,br*s*0.3)});
+    }
+  }
+  return els;
+}
+
+// ── HUD ──────────────────────────────────────────────────────────
+function drawHUD(){
+  const alive=localCreatures.filter(c=>c.state!=='dead'&&c.state!=='dying');
+  const alivePlants=localPlants.filter(p=>p&&p.alive).length;
+  const maxGen=alive.length?Math.max(...alive.map(c=>c.generation)):0;
+  const oldest=alive.length?Math.max(...alive.map(c=>c.age)):0;
+  const avgE=alive.length?Math.round(alive.reduce((s,c)=>s+c.energy,0)/alive.length):0;
+  const bestEver=((localGenePool[0]?.fitness||0)/60).toFixed(0);
+  const adults=alive.filter(c=>c.state==='adult').length;
+  const juveniles=alive.filter(c=>c.state==='juvenile').length;
+
+  ctx.save();
+  ctx.fillStyle='rgba(2,8,18,0.72)';
+  ctx.beginPath();
+  ctx.roundRect?ctx.roundRect(10,10,248,110,7):ctx.rect(10,10,248,110);
+  ctx.fill();
+  ctx.fillStyle='rgba(130,200,255,0.88)';
+  ctx.font='11px monospace';
+  ctx.fillText(`Plants      ${alivePlants} / 120`,18,30);
+  ctx.fillText(`Creatures   ${alive.length}  (${adults} adult, ${juveniles} juv)`,18,46);
+  ctx.fillText(`Generation  ${maxGen}`,18,62);
+  ctx.fillText(`Oldest  ${(oldest/60).toFixed(0)}s    Avg E  ${avgE}%`,18,78);
+  ctx.fillText(`Era  ${localEra.era}    Best ever  ${bestEver}s`,18,94);
+  ctx.restore();
+}
+
+// ── ERA PANEL ────────────────────────────────────────────────────
+function drawEraPanel(){
+  const PX=770,PY=10,PW=120;
+  const rows=Math.min(localEraHistory.length,10);
+  const PH=36+rows*14+(rows>0?6:0)+18;
+
+  ctx.save();
+  ctx.fillStyle='rgba(2,8,18,0.75)';
+  ctx.beginPath();
+  ctx.roundRect?ctx.roundRect(PX,PY,PW,PH,7):ctx.rect(PX,PY,PW,PH);
+  ctx.fill();
+
+  ctx.fillStyle='rgba(160,220,255,0.95)';
+  ctx.font='bold 10px monospace';
+  ctx.fillText('EVOLUTION LOG',PX+8,PY+16);
+
+  ctx.fillStyle='rgba(80,140,190,0.8)';
+  ctx.font='9px monospace';
+  ctx.fillText('Era  Time  Pop Gen',PX+6,PY+28);
+
+  const past=localEraHistory.slice(-10);
+  past.forEach((e,i)=>{
+    const s=(e.duration/60).toFixed(0)+'s';
+    ctx.fillStyle=`rgba(90,150,200,${0.5+Math.min(i,rows-1)/rows*0.4})`;
+    ctx.font='9px monospace';
+    ctx.fillText(`${pad(e.era,3)} ${pad(s,5)} ${pad(e.peakPop,3)} ${pad(e.maxGen,3)}`,PX+6,PY+40+i*14);
+  });
+
+  const curS=(localEra.eraFrame/60).toFixed(0)+'s';
+  const curY=PY+40+past.length*14+(past.length?8:0);
+  ctx.fillStyle='rgba(210,240,255,1.0)';
+  ctx.font='bold 9px monospace';
+  ctx.fillText(`▶${pad(localEra.era,2)} ${pad(curS,5)} ${pad(localEra.peakPop,3)} ${pad(localEra.maxGen,3)}`,PX+3,curY);
+  ctx.restore();
+}
+
+// ── RENDER LOOP ───────────────────────────────────────────────────
+function frame(){
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#06080f';
+  ctx.fillRect(0,0,W,H);
+
+  const ax=angleX,ay=angleY,elements=[];
+
+  // Sphere dots + wireframe
+  for(const p of geoSphere){
+    const r=rotate(p.x,p.y,p.z,ax,ay),br=(r.z/SPHERE_R+1)*0.5;
+    const {sx,sy}=project(r.x,r.y,r.z);
+    elements.push({kind:0,z:r.z,sx,sy,size:0.7+br*1.1,alpha:0.06+br*0.16});
+  }
+  for(const s of geoWireframe){
+    const r1=rotate(s.x1,s.y1,s.z1,ax,ay),r2=rotate(s.x2,s.y2,s.z2,ax,ay);
+    const {sx:sx1,sy:sy1}=project(r1.x,r1.y,r1.z),{sx:sx2,sy:sy2}=project(r2.x,r2.y,r2.z);
+    const mz=(r1.z+r2.z)*0.5;
+    elements.push({kind:3,z:mz,sx1,sy1,sx2,sy2,alpha:0.18+(mz/SPHERE_R+1)*0.5*0.28});
+  }
+
+  // Plants
+  for(const pl of localPlants){
+    if(!pl||!pl.alive||!pl.segs) continue;
+    for(const s of pl.segs){
+      const r1=rotate(s.x1,s.y1,s.z1,ax,ay),r2=rotate(s.x2,s.y2,s.z2,ax,ay);
+      const {sx:sx1,sy:sy1}=project(r1.x,r1.y,r1.z),{sx:sx2,sy:sy2}=project(r2.x,r2.y,r2.z);
+      elements.push({kind:1,z:(r1.z+r2.z)*0.5,sx1,sy1,sx2,sy2,color:s.color,lw:s.lw});
+    }
+    if(pl.flowers) for(const d of pl.flowers){
+      const r=rotate(d.x,d.y,d.z,ax,ay),{sx,sy,s}=project(r.x,r.y,r.z);
+      elements.push({kind:2,z:r.z,sx,sy,size:d.size*s,color:d.color});
+    }
+  }
+
+  // Creatures
+  for(const c of localCreatures)
+    for(const el of getCreatureElements(c,ax,ay)) elements.push(el);
+
+  elements.sort((a,b)=>a.z-b.z);
+
+  for(const el of elements){
+    if(el.kind===0){
+      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size,0,Math.PI*2);
+      ctx.fillStyle=`rgba(110,160,255,${el.alpha})`;ctx.fill();
+    } else if(el.kind===1){
+      ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
+      ctx.strokeStyle=el.color;ctx.lineWidth=el.lw;ctx.lineCap='round';ctx.stroke();
+    } else if(el.kind===2){
+      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size,0,Math.PI*2);ctx.fillStyle=el.color;ctx.fill();
+      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size*2,0,Math.PI*2);
+      ctx.fillStyle=el.color.replace('hsl','hsla').replace(')',',0.18)');ctx.fill();
+    } else if(el.kind===3){
+      ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
+      ctx.strokeStyle=`rgba(100,180,255,${el.alpha})`;ctx.lineWidth=0.6;ctx.stroke();
+    } else if(el.kind===4){
+      ctx.beginPath();ctx.ellipse(el.sx,el.sy,el.rx,el.ry,el.angle,0,Math.PI*2);
+      ctx.fillStyle=el.color;ctx.fill();ctx.strokeStyle=el.color;ctx.lineWidth=0.5;ctx.stroke();
+    } else if(el.kind===5){
+      ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
+      ctx.strokeStyle=el.color;ctx.lineWidth=el.lw;ctx.lineCap='round';ctx.stroke();
+    }
+  }
+
+  drawHUD();
+  drawEraPanel();
+
+  if(!dragging){velY+=(0.004-velY)*0.02;velX*=0.92;angleY+=velY;angleX+=velX;}
+  requestAnimationFrame(frame);
+}
+
+frame();
+</script>
+</body>
+</html>
