@@ -255,16 +255,16 @@ function frame(){
     ctx.strokeStyle=`rgba(100,180,255,${alpha})`;ctx.lineWidth=0.6;ctx.stroke();
   }
 
-  // ── Plants: simple dots, no sort needed ─────────────────────────
+  // ── Plants: small boxes, no sort needed ──────────────────────────
   for(const pl of localPlants){
     if(!pl||!pl.alive) continue;
     const r=rotate(pl.root.x,pl.root.y,pl.root.z,ax,ay);
     const {sx,sy,s}=project(r.x,r.y,r.z);
-    const sz=pl.size*s;
-    ctx.beginPath();ctx.arc(sx,sy,sz,0,Math.PI*2);
-    ctx.fillStyle=`hsl(${pl.hue},${pl.sat}%,${pl.lit}%)`;ctx.fill();
-    ctx.beginPath();ctx.arc(sx,sy,sz*1.8,0,Math.PI*2);
-    ctx.fillStyle=`hsla(${pl.hue},${pl.sat}%,${pl.lit}%,0.15)`;ctx.fill();
+    const hw=pl.size*s*1.5;  // half-width
+    ctx.fillStyle=`hsl(${pl.hue},${pl.sat}%,${pl.lit}%)`;
+    ctx.fillRect(sx-hw,sy-hw,hw*2,hw*2);
+    ctx.fillStyle=`hsla(${pl.hue},${pl.sat}%,${pl.lit}%,0.12)`;
+    ctx.fillRect(sx-hw*2,sy-hw*2,hw*4,hw*4);
   }
 
   // ── Creatures: sort ~20-40 elements (small, stays fast) ───────
