@@ -238,22 +238,25 @@ function frame(){
   ctx.fillStyle='#06080f';
   ctx.fillRect(0,0,W,H);
 
-  const ax=angleX,ay=angleY,elements=[];
+  const ax=angleX,ay=angleY;
 
-  // Sphere dots + wireframe
+  // ── Background: sphere dots + wireframe (no sort needed) ──────
   for(const p of geoSphere){
     const r=rotate(p.x,p.y,p.z,ax,ay),br=(r.z/SPHERE_R+1)*0.5;
     const {sx,sy}=project(r.x,r.y,r.z);
-    elements.push({kind:0,z:r.z,sx,sy,size:0.7+br*1.1,alpha:0.06+br*0.16});
+    ctx.beginPath();ctx.arc(sx,sy,0.7+br*1.1,0,Math.PI*2);
+    ctx.fillStyle=`rgba(110,160,255,${0.06+br*0.16})`;ctx.fill();
   }
   for(const s of geoWireframe){
     const r1=rotate(s.x1,s.y1,s.z1,ax,ay),r2=rotate(s.x2,s.y2,s.z2,ax,ay);
     const {sx:sx1,sy:sy1}=project(r1.x,r1.y,r1.z),{sx:sx2,sy:sy2}=project(r2.x,r2.y,r2.z);
-    const mz=(r1.z+r2.z)*0.5;
-    elements.push({kind:3,z:mz,sx1,sy1,sx2,sy2,alpha:0.18+(mz/SPHERE_R+1)*0.5*0.28});
+    const mz=(r1.z+r2.z)*0.5,alpha=0.18+(mz/SPHERE_R+1)*0.5*0.28;
+    ctx.beginPath();ctx.moveTo(sx1,sy1);ctx.lineTo(sx2,sy2);
+    ctx.strokeStyle=`rgba(100,180,255,${alpha})`;ctx.lineWidth=0.6;ctx.stroke();
   }
 
-  // Plants
+  // ── Foreground: plants + creatures (depth sorted) ─────────────
+  const elements=[];
   for(const pl of localPlants){
     if(!pl||!pl.alive||!pl.segs) continue;
     for(const s of pl.segs){
@@ -266,27 +269,19 @@ function frame(){
       elements.push({kind:2,z:r.z,sx,sy,size:d.size*s,color:d.color});
     }
   }
-
-  // Creatures
   for(const c of localCreatures)
     for(const el of getCreatureElements(c,ax,ay)) elements.push(el);
 
   elements.sort((a,b)=>a.z-b.z);
 
   for(const el of elements){
-    if(el.kind===0){
-      ctx.beginPath();ctx.arc(el.sx,el.sy,el.size,0,Math.PI*2);
-      ctx.fillStyle=`rgba(110,160,255,${el.alpha})`;ctx.fill();
-    } else if(el.kind===1){
+    if(el.kind===1){
       ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
       ctx.strokeStyle=el.color;ctx.lineWidth=el.lw;ctx.lineCap='round';ctx.stroke();
     } else if(el.kind===2){
       ctx.beginPath();ctx.arc(el.sx,el.sy,el.size,0,Math.PI*2);ctx.fillStyle=el.color;ctx.fill();
       ctx.beginPath();ctx.arc(el.sx,el.sy,el.size*2,0,Math.PI*2);
       ctx.fillStyle=el.color.replace('hsl','hsla').replace(')',',0.18)');ctx.fill();
-    } else if(el.kind===3){
-      ctx.beginPath();ctx.moveTo(el.sx1,el.sy1);ctx.lineTo(el.sx2,el.sy2);
-      ctx.strokeStyle=`rgba(100,180,255,${el.alpha})`;ctx.lineWidth=0.6;ctx.stroke();
     } else if(el.kind===4){
       ctx.beginPath();ctx.ellipse(el.sx,el.sy,el.rx,el.ry,el.angle,0,Math.PI*2);
       ctx.fillStyle=el.color;ctx.fill();ctx.strokeStyle=el.color;ctx.lineWidth=0.5;ctx.stroke();

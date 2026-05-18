@@ -10,7 +10,7 @@ const CREATURE_INIT = 8;
 const MAX_CREATURES = 20;
 
 const CFG = {
-  plant:  { layers:[5,7], baseLen:[2,7], ratio:[0.55,0.70], spread:[1.0,1.4] },
+  plant:  { layers:[3,5], baseLen:[2,7], ratio:[0.55,0.70], spread:[1.0,1.4] },
   green:  { hue:[85,135],  sat:[40,75],  light:[22,50]  },
   flower: { hue:[0,360],   sat:[70,100], light:[60,88], count:[2,8], size:[0.4,1.0] },
 };
